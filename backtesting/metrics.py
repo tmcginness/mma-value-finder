@@ -31,7 +31,7 @@ def log_loss_score(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     """Log loss — heavily penalizes confident wrong predictions."""
     # Clip to avoid log(0)
     y_prob = np.clip(y_prob, 1e-7, 1 - 1e-7)
-    return log_loss(y_true, y_prob)
+    return log_loss(y_true, y_prob, labels=[0, 1])
 
 
 def calibration_table(

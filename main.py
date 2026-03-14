@@ -114,21 +114,138 @@ def cmd_evaluate(args):
 
 def cmd_predict(args):
     """
-    Predict upcoming fights.
+    Predict upcoming fights using a trained model and historical fighter data.
 
-    Placeholder — once you have a trained model and upcoming fight card data,
-    this will generate predictions and flag value spots.
+    Loads all historical fights, builds features for the upcoming matchups,
+    and outputs win probabilities + value assessment against betting lines.
     """
-    print("Predict mode — coming soon!")
+    from models.base_model import BaseFightModel
+    from config.settings import american_to_implied_prob, implied_prob_to_american
+
+    # Load upcoming fights
+    upcoming_path = args.fights if hasattr(args, "fights") and args.fights else "data/upcoming_fights.csv"
+    try:
+        upcoming = pd.read_csv(upcoming_path)
+    except FileNotFoundError:
+        print(f"[ERROR] {upcoming_path} not found.")
+        print()
+        print("Create a CSV with columns: fighter_a,fighter_b[,fighter_a_line,fighter_b_line]")
+        print("Example:")
+        print('  fighter_a,fighter_b,fighter_a_line,fighter_b_line')
+        print('  "Jon Jones","Stipe Miocic",-400,+300')
+        sys.exit(1)
+
+    # Load historical fights and build fighter histories
+    print("Loading historical fight data...")
+    fights = load_fights()
+    print(f"Loaded {len(fights)} historical fights")
+
+    print("Building feature matrix from historical fights...")
+    fights_with_features = build_feature_matrix(fights)
+
+    # Build fighter histories for upcoming fight feature computation
+    from features.feature_engineering import _build_fighter_histories, _get_fighter_stats_before
+    fighter_histories = _build_fighter_histories(
+        fights_with_features.sort_values("date").reset_index(drop=True)
+    )
+
+    # Load or train model
+    model_name = args.model
+    model = MODEL_REGISTRY[model_name]()
+
+    if model_name == "elo":
+        # Elo needs to process all historical fights to build ratings
+        valid = fights_with_features[
+            (fights_with_features.get("has_features", False) == True)
+            & (fights_with_features["is_draw_nc"] == False)
+        ]
+        model.fit(valid, valid["fighter_a_won"])
+    else:
+        model_path = f"models/{model_name}_model.pkl"
+        try:
+            model = BaseFightModel.load(model_path)
+            print(f"Loaded saved {model_name} model")
+        except FileNotFoundError:
+            print(f"No saved model found. Training {model_name} on all historical data...")
+            valid = fights_with_features[
+                (fights_with_features.get("has_features", False) == True)
+                & (fights_with_features["is_draw_nc"] == False)
+            ]
+            available_features = [f for f in MODEL_FEATURES if f in valid.columns]
+            model.fit(valid[available_features], valid["fighter_a_won"])
+
+    # Determine available features
+    available_features = [f for f in MODEL_FEATURES if f in fights_with_features.columns]
+
+    # Use latest date as reference for computing features
+    reference_date = fights["date"].max() + pd.Timedelta(days=1)
+
+    print(f"\n{'='*70}")
+    print(f"PREDICTIONS — {model_name.upper()} MODEL")
+    print(f"{'='*70}")
+
+    has_lines = "fighter_a_line" in upcoming.columns
+
+    for _, matchup in upcoming.iterrows():
+        a_name = matchup["fighter_a"].strip()
+        b_name = matchup["fighter_b"].strip()
+
+        print(f"\n{a_name} vs {b_name}")
+        print(f"{'─'*50}")
+
+        if model_name == "elo":
+            # Elo uses ratings directly
+            prob_a = model._expected_score(
+                model._get_rating(a_name), model._get_rating(b_name)
+            )
+            rating_a = model._get_rating(a_name)
+            rating_b = model._get_rating(b_name)
+            print(f"  Elo Ratings: {a_name} {rating_a:.0f} | {b_name} {rating_b:.0f}")
+        else:
+            # Feature-based model
+            a_stats = _get_fighter_stats_before(fighter_histories, a_name, reference_date)
+            b_stats = _get_fighter_stats_before(fighter_histories, b_name, reference_date)
+
+            if a_stats is None or b_stats is None:
+                missing = []
+                if a_stats is None:
+                    missing.append(a_name)
+                if b_stats is None:
+                    missing.append(b_name)
+                print(f"  [SKIP] Not enough history for: {', '.join(missing)}")
+                continue
+
+            features = {}
+            for stat_name in a_stats:
+                features[f"{stat_name}_diff"] = a_stats[stat_name] - b_stats[stat_name]
+
+            feature_df = pd.DataFrame([features])
+            X = feature_df[[f for f in available_features if f in feature_df.columns]]
+            prob_a = model.predict_proba(X)[0]
+
+        prob_b = 1 - prob_a
+        print(f"  Model: {a_name} {prob_a:.1%} | {b_name} {prob_b:.1%}")
+        print(f"  Fair line: {a_name} {implied_prob_to_american(prob_a):+d} | {b_name} {implied_prob_to_american(prob_b):+d}")
+
+        if has_lines and pd.notna(matchup.get("fighter_a_line")):
+            line_a = int(matchup["fighter_a_line"])
+            line_b = int(matchup["fighter_b_line"])
+            implied_a = american_to_implied_prob(line_a)
+            implied_b = american_to_implied_prob(line_b)
+
+            edge_a = prob_a - implied_a
+            edge_b = prob_b - implied_b
+
+            print(f"  Market: {a_name} {line_a:+d} ({implied_a:.1%}) | {b_name} {line_b:+d} ({implied_b:.1%})")
+
+            if edge_a > MIN_EDGE_THRESHOLD:
+                print(f"  >>> VALUE: {a_name} ({edge_a:+.1%} edge)")
+            elif edge_b > MIN_EDGE_THRESHOLD:
+                print(f"  >>> VALUE: {b_name} ({edge_b:+.1%} edge)")
+            else:
+                print(f"  No value found (edges: {edge_a:+.1%} / {edge_b:+.1%})")
+
     print()
-    print("To use this, you'll need to:")
-    print("  1. Have a trained model (run `python main.py train --model logistic`)")
-    print("  2. Create a CSV of upcoming fights with fighter names")
-    print("  3. The model will compute features from historical data and output probabilities")
-    print()
-    print("Example upcoming_fights.csv format:")
-    print("  fighter_a,fighter_b,fighter_a_line,fighter_b_line")
-    print('  "Jon Jones","Stipe Miocic",-400,+300')
 
 
 def main():
@@ -168,7 +285,15 @@ def main():
     )
 
     # Predict
-    subparsers.add_parser("predict", help="Predict upcoming fights")
+    pred_parser = subparsers.add_parser("predict", help="Predict upcoming fights")
+    pred_parser.add_argument(
+        "--model", choices=list(MODEL_REGISTRY.keys()), default="elo",
+        help="Model type (default: elo)"
+    )
+    pred_parser.add_argument(
+        "--fights", type=str, default="data/upcoming_fights.csv",
+        help="Path to upcoming fights CSV"
+    )
 
     args = parser.parse_args()
 

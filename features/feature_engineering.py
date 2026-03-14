@@ -73,6 +73,14 @@ def _build_fighter_histories(fights: pd.DataFrame) -> dict:
     for _, fight in fights.iterrows():
         date = fight["date"]
         winner = fight["winner"]
+        method = fight.get("method_clean", "unknown")
+        rnd = fight.get("round", None)
+
+        # Parse round to int for round-based features
+        try:
+            rnd_int = int(rnd) if pd.notna(rnd) else None
+        except (ValueError, TypeError):
+            rnd_int = None
 
         for role in ["a", "b"]:
             name = fight[f"fighter_{role}"]
@@ -85,17 +93,9 @@ def _build_fighter_histories(fights: pd.DataFrame) -> dict:
                 "date": date,
                 "opponent": opponent,
                 "won": 1 if name == winner else 0,
-                "method": fight.get("method_clean", "unknown"),
+                "method": method,
+                "round": rnd_int,
                 "weight_class": fight.get("weight_class_clean", ""),
-                # TODO: When you have per-fight detailed stats from scraping
-                # fight detail pages, add them here:
-                # "sig_strikes_landed": ...,
-                # "sig_strikes_attempted": ...,
-                # "sig_strikes_absorbed": ...,
-                # "takedowns_landed": ...,
-                # "takedowns_attempted": ...,
-                # "sub_attempts": ...,
-                # "control_time_seconds": ...,
             }
             histories[name].append(entry)
 
@@ -142,24 +142,52 @@ def _get_fighter_stats_before(
     else:
         stats["finish_rate"] = 0.0
 
+    # ── KO rate and submission rate (separated) ──────────────────
+    if wins:
+        ko_wins = [f for f in wins if f["method"] == "ko_tko"]
+        sub_wins = [f for f in wins if f["method"] == "submission"]
+        stats["ko_rate"] = len(ko_wins) / len(wins)
+        stats["sub_rate"] = len(sub_wins) / len(wins)
+    else:
+        stats["ko_rate"] = 0.0
+        stats["sub_rate"] = 0.0
+
+    # ── Decision rate (goes the distance) ────────────────────────
+    decision_methods = ("unanimous_decision", "split_decision", "majority_decision")
+    decision_fights = [f for f in recent if f["method"] in decision_methods]
+    stats["decision_rate"] = len(decision_fights) / len(recent)
+
     # ── Days since last fight (ring rust) ────────────────────────
     last_fight_date = prior_fights[-1]["date"]
     stats["days_since_last_fight"] = (before_date - last_fight_date).days
 
-    # ── Placeholder stats (fill in when you have per-fight detail data) ──
-    # For now, use career-level stats or zeros as placeholders.
-    # Once you scrape fight detail pages, replace these with rolling avgs.
-    stats["sig_strikes_landed_pm"] = 0.0
-    stats["sig_strike_accuracy"] = 0.0
-    stats["sig_strikes_absorbed_pm"] = 0.0
-    stats["strike_defense"] = 0.0
-    stats["takedown_avg"] = 0.0
-    stats["takedown_accuracy"] = 0.0
-    stats["takedown_defense"] = 0.0
-    stats["sub_attempts_avg"] = 0.0
-    stats["reach"] = 0.0
-    stats["age"] = 0.0
-    stats["striking_differential"] = 0.0  # landed - absorbed per min
+    # ── Recent form (win rate in last 3) ─────────────────────────
+    last_3 = prior_fights[-3:] if len(prior_fights) >= 3 else prior_fights
+    stats["recent_form"] = np.mean([f["won"] for f in last_3])
+
+    # ── Loss recovery: did they win after their last loss? ───────
+    stats["loss_recovery"] = _loss_recovery_score(prior_fights)
+
+    # ── Avg fight duration (round finished) ──────────────────────
+    rounds = [f["round"] for f in recent if f["round"] is not None]
+    stats["avg_fight_rounds"] = np.mean(rounds) if rounds else 2.5
+
+    # ── First round finish rate ──────────────────────────────────
+    if wins:
+        r1_finishes = [f for f in wins if f["round"] == 1 and f["method"] in ("ko_tko", "submission")]
+        stats["first_round_finish_rate"] = len(r1_finishes) / len(wins)
+    else:
+        stats["first_round_finish_rate"] = 0.0
+
+    # ── Activity rate (fights per year over career) ──────────────
+    if len(prior_fights) >= 2:
+        career_days = (prior_fights[-1]["date"] - prior_fights[0]["date"]).days
+        if career_days > 0:
+            stats["fights_per_year"] = len(prior_fights) / (career_days / 365.25)
+        else:
+            stats["fights_per_year"] = 1.0
+    else:
+        stats["fights_per_year"] = 1.0
 
     return stats
 
@@ -181,20 +209,21 @@ def _current_streak(fight_list: list[dict]) -> int:
     return streak if last_result == 1 else -streak
 
 
-# ── Additional Feature Ideas (implement as you iterate) ──────────────
-#
-# Stylistic matchup features:
-#   - striker_vs_grappler: classify each fighter's style, encode matchup
-#   - southpaw_advantage: reach/stance interaction
-#   - pace_mismatch: one fighter high output vs low output opponent
-#
-# Contextual features:
-#   - title_fight: championship fights may produce different dynamics
-#   - main_card: position on card as proxy for perceived competitiveness
-#   - altitude: some venues at elevation affect cardio
-#   - short_notice: replacement fighters have worse stats
-#
-# Opponent quality:
-#   - strength_of_schedule: average opponent win rate
-#   - best_win_quality: Elo of best defeated opponent
-#   - level_of_competition_jump: moving from regional to UFC, etc.
+def _loss_recovery_score(fight_list: list[dict]) -> float:
+    """
+    Measures how well a fighter bounces back after losses.
+    Returns the fraction of losses followed by a win (0 to 1).
+    Fighters who recover well from losses are more resilient.
+    """
+    if len(fight_list) < 2:
+        return 0.5  # neutral default
+
+    losses_followed_by = []
+    for i in range(len(fight_list) - 1):
+        if fight_list[i]["won"] == 0:
+            losses_followed_by.append(fight_list[i + 1]["won"])
+
+    if not losses_followed_by:
+        return 1.0  # never lost, or lost only in last fight
+
+    return np.mean(losses_followed_by)

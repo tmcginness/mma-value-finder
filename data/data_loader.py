@@ -34,6 +34,15 @@ def load_fights(path: str = RAW_FIGHTS_CSV) -> pd.DataFrame:
     df["fighter_b"] = df["fighter_b"].str.strip()
     df["winner"] = df["winner"].str.strip()
 
+    # UFCStats lists the winner first, so fighter_a is always the winner.
+    # Randomly swap fighter_a/fighter_b to avoid label leakage.
+    rng = np.random.RandomState(42)
+    swap_mask = rng.random(len(df)) < 0.5
+    swapped = df.copy()
+    swapped.loc[swap_mask, "fighter_a"] = df.loc[swap_mask, "fighter_b"]
+    swapped.loc[swap_mask, "fighter_b"] = df.loc[swap_mask, "fighter_a"]
+    df = swapped
+
     # Binary outcome: did fighter_a win?
     df["fighter_a_won"] = (df["winner"] == df["fighter_a"]).astype(int)
 

@@ -107,16 +107,25 @@ class UFCStatsScraper:
             if len(names) < 2:
                 continue
 
-            # Win/Loss indicators
-            results = [i.text.strip() for i in cols[0].select("i")]
+            # Win/Loss indicator — UFCStats uses a green flag with text "win"
+            flag = cols[0].select_one(".b-flag__text")
+            flag_text = flag.text.strip().lower() if flag else ""
 
-            # Method, round, time
-            method = cols[7].text.strip() if len(cols) > 7 else ""
+            # Method, round, time — clean up embedded whitespace
+            method = " ".join(cols[7].text.split()) if len(cols) > 7 else ""
             rnd = cols[8].text.strip() if len(cols) > 8 else ""
             fight_time = cols[9].text.strip() if len(cols) > 9 else ""
 
             # Weight class
             weight_class = cols[6].text.strip() if len(cols) > 6 else ""
+
+            # First fighter listed is the winner when flag says "win"
+            if flag_text == "win":
+                winner = names[0]
+            elif flag_text in ("draw", "nc"):
+                winner = "Draw/NC"
+            else:
+                winner = "Draw/NC"  # No flag = upcoming/unknown
 
             fights.append({
                 "event": event_name,
@@ -124,9 +133,7 @@ class UFCStatsScraper:
                 "fight_url": fight_url,
                 "fighter_a": names[0],
                 "fighter_b": names[1],
-                "winner": names[0] if results and results[0] == "W" else (
-                    names[1] if len(results) > 1 and results[1] == "W" else "Draw/NC"
-                ),
+                "winner": winner,
                 "method": method,
                 "round": rnd,
                 "time": fight_time,

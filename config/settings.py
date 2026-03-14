@@ -21,28 +21,26 @@ ROLLING_WINDOW = 5
 
 # Features fed into the model (per fighter, computed as fighter_a - fighter_b differential)
 MODEL_FEATURES = [
-    # Striking
-    "sig_strikes_landed_pm_diff",   # Significant strikes landed per minute
-    "sig_strike_accuracy_diff",     # Significant strike accuracy %
-    "sig_strikes_absorbed_pm_diff", # Sig strikes absorbed per minute
-    "strike_defense_diff",          # Strike defense %
-
-    # Grappling
-    "takedown_avg_diff",            # Takedowns per 15 min
-    "takedown_accuracy_diff",       # Takedown accuracy %
-    "takedown_defense_diff",        # Takedown defense %
-    "sub_attempts_avg_diff",        # Submission attempts per 15 min
-
-    # Physical / contextual
-    "reach_diff",                   # Reach in inches
-    "age_diff",                     # Age at fight time
-    "days_since_last_fight_diff",   # Ring rust indicator
-    "win_streak_diff",              # Current win streak
+    # Win/loss record
+    "win_rate_diff",                # Rolling win rate
+    "win_streak_diff",              # Current win/loss streak
+    "recent_form_diff",             # Win rate in last 3 fights
     "ufc_experience_diff",          # Number of UFC fights
 
-    # Derived
+    # Finish tendencies
     "finish_rate_diff",             # % of wins by finish
-    "striking_differential_diff",   # Landed - absorbed per min (net pressure)
+    "ko_rate_diff",                 # % of wins by KO/TKO
+    "sub_rate_diff",                # % of wins by submission
+    "decision_rate_diff",           # % of fights going to decision
+    "first_round_finish_rate_diff", # % of wins in round 1
+
+    # Activity / conditioning
+    "days_since_last_fight_diff",   # Ring rust indicator
+    "fights_per_year_diff",         # Career activity rate
+    "avg_fight_rounds_diff",        # Average fight duration (rounds)
+
+    # Resilience
+    "loss_recovery_diff",           # How well they bounce back from losses
 ]
 
 # ── Model Settings ───────────────────────────────────────────────────
@@ -50,7 +48,7 @@ RANDOM_SEED = 42
 
 LOGISTIC_PARAMS = {
     "C": 1.0,
-    "penalty": "l2",
+    "l1_ratio": 0,  # equivalent to L2 penalty
     "solver": "lbfgs",
     "max_iter": 1000,
 }
