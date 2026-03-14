@@ -178,14 +178,49 @@ class UFCStatsScraper:
 
     # ── Full Scrape ──────────────────────────────────────────────────
 
-    def scrape_all_events(self, save: bool = True) -> pd.DataFrame:
-        """Scrape all events and their fights. Returns DataFrame of all fights."""
+    def scrape_all_events(self, save: bool = True, incremental: bool = True) -> pd.DataFrame:
+        """Scrape all events and their fights. Returns DataFrame of all fights.
+
+        If incremental=True, saves progress after every 25 events so data
+        isn't lost if the process is interrupted. Also supports resuming
+        from a partial CSV.
+        """
         event_urls = self.get_event_urls()
         all_fights = []
+        start_idx = 0
 
-        for url in tqdm(event_urls, desc="Scraping events"):
+        # Resume from existing partial data if available
+        if incremental and save:
+            try:
+                existing = pd.read_csv(RAW_FIGHTS_CSV)
+                if not existing.empty:
+                    scraped_events = set(existing["event"].unique())
+                    # Find first event URL not yet scraped
+                    for i, url in enumerate(event_urls):
+                        # We'll re-check by scraping, but skip events we already have
+                        pass
+                    all_fights = existing.to_dict("records")
+                    # Skip URLs whose events we already scraped
+                    remaining_urls = []
+                    for url in event_urls:
+                        soup = None  # Don't pre-fetch; filter by checking after scrape
+                        remaining_urls.append(url)
+                    # Simpler approach: just check scraped event count
+                    start_idx = len(scraped_events)
+                    print(f"Resuming: found {len(all_fights)} fights from {len(scraped_events)} events, "
+                          f"skipping to event {start_idx}/{len(event_urls)}")
+            except (FileNotFoundError, pd.errors.EmptyDataError):
+                pass
+
+        for i, url in enumerate(tqdm(event_urls[start_idx:], desc="Scraping events",
+                                     initial=start_idx, total=len(event_urls))):
             fights = self.scrape_event(url)
             all_fights.extend(fights)
+
+            # Save progress every 25 events
+            if incremental and save and (i + 1) % 25 == 0:
+                pd.DataFrame(all_fights).to_csv(RAW_FIGHTS_CSV, index=False)
+                print(f"\n  [checkpoint] Saved {len(all_fights)} fights after {start_idx + i + 1} events")
 
         df = pd.DataFrame(all_fights)
         if save and not df.empty:
