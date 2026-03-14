@@ -59,13 +59,15 @@ class UFCStatsScraper:
                 break
 
             rows = soup.select("tr.b-statistics__table-row")
-            if not rows:
-                break
-
+            found = 0
             for row in rows:
                 link = row.select_one("a.b-link")
                 if link and link.get("href"):
                     urls.append(link["href"].strip())
+                    found += 1
+
+            if found == 0:
+                break
 
             page += 1
 
