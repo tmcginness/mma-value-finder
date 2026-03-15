@@ -3,4 +3,5 @@ __pycache__/
 *.pyo
 data/*.csv
 models/*.joblib
+models/*.pkl
 .env

@@ -29,7 +29,9 @@ class LogisticFightModel(BaseFightModel):
             ("scaler", StandardScaler()),
             ("clf", LogisticRegression(
                 random_state=RANDOM_SEED,
-                **LOGISTIC_PARAMS,
+                C=LOGISTIC_PARAMS["C"],
+                solver=LOGISTIC_PARAMS["solver"],
+                max_iter=LOGISTIC_PARAMS["max_iter"],
             )),
         ])
 
