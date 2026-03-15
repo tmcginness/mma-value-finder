@@ -32,7 +32,17 @@ def load_fights(path: str = RAW_FIGHTS_CSV) -> pd.DataFrame:
     # Normalize fighter names
     df["fighter_a"] = df["fighter_a"].str.strip()
     df["fighter_b"] = df["fighter_b"].str.strip()
-    df["winner"] = df["winner"].str.strip()
+
+    # Fix winner column: UFCStats always lists the winner first (fighter_a).
+    # The scraper's flag detection may fail, leaving all winners as "Draw/NC".
+    # Derive the actual winner from the method field instead.
+    method_first = df["method"].str.split("\n").str[0].str.strip().str.upper()
+    is_real_nc = method_first.isin(["OVERTURNED", "CNC"])
+    is_draw = method_first.str.contains("DRAW", na=False)
+
+    # For real fights (not NC/draw), winner = fighter_a (listed first by UFCStats)
+    df["winner"] = df["fighter_a"]
+    df.loc[is_real_nc | is_draw, "winner"] = "Draw/NC"
 
     # UFCStats lists the winner first, so fighter_a is always the winner.
     # Randomly swap fighter_a/fighter_b to avoid label leakage.
@@ -47,7 +57,7 @@ def load_fights(path: str = RAW_FIGHTS_CSV) -> pd.DataFrame:
     df["fighter_a_won"] = (df["winner"] == df["fighter_a"]).astype(int)
 
     # Flag draws / no contests
-    df["is_draw_nc"] = df["winner"].str.contains("Draw|NC", case=False, na=False)
+    df["is_draw_nc"] = (df["winner"] == "Draw/NC")
 
     # Clean method
     df["method_clean"] = df["method"].apply(_clean_method)

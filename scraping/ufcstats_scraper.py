@@ -109,8 +109,13 @@ class UFCStatsScraper:
                 continue
 
             # Win/Loss indicator — UFCStats uses a green flag with text "win"
+            # Also check for green flag CSS class as a fallback
             flag = cols[0].select_one(".b-flag__text")
-            flag_text = flag.text.strip().lower() if flag else ""
+            flag_text = ""
+            if flag:
+                # Use .string or first text node to avoid child element text
+                flag_text = flag.get_text(strip=True).lower()
+            green_flag = cols[0].select_one("a.b-flag_style_green")
 
             # Method, round, time — clean up embedded whitespace
             method = " ".join(cols[7].text.split()) if len(cols) > 7 else ""
@@ -120,13 +125,18 @@ class UFCStatsScraper:
             # Weight class
             weight_class = cols[6].text.strip() if len(cols) > 6 else ""
 
-            # First fighter listed is the winner when flag says "win"
-            if flag_text == "win":
+            # Determine winner
+            method_upper = method.split("\n")[0].strip().upper()
+            if flag_text.startswith("win") or green_flag is not None:
                 winner = names[0]
-            elif flag_text in ("draw", "nc"):
+            elif flag_text in ("draw", "nc") or method_upper in ("OVERTURNED", "CNC"):
                 winner = "Draw/NC"
             else:
-                winner = "Draw/NC"  # No flag = upcoming/unknown
+                # Fallback: UFCStats lists winner first for decided fights
+                if method_upper and method_upper not in ("OVERTURNED", "CNC"):
+                    winner = names[0]
+                else:
+                    winner = "Draw/NC"
 
             fights.append({
                 "event": event_name,
