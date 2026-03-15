@@ -9,11 +9,16 @@ UFCSTATS_FIGHT_URL = "http://www.ufcstats.com/fight-details/"
 UFCSTATS_FIGHTER_URL = "http://www.ufcstats.com/fighter-details/"
 REQUEST_DELAY_SECONDS = 1.5  # Be polite to the server
 
+# ── Tapology ────────────────────────────────────────────────────────
+TAPOLOGY_BASE_URL = "https://www.tapology.com"
+TAPOLOGY_DELAY_SECONDS = 3.0  # More conservative — smaller community site
+
 # ── Data Paths ───────────────────────────────────────────────────────
 RAW_FIGHTS_CSV = "data/raw_fights.csv"
 RAW_FIGHTERS_CSV = "data/raw_fighters.csv"
 PROCESSED_FIGHTS_CSV = "data/processed_fights.csv"
 HISTORICAL_LINES_CSV = "data/historical_lines.csv"  # You'll need to source this
+TAPOLOGY_RECORDS_CSV = "data/tapology_records.csv"
 
 # ── Feature Engineering ──────────────────────────────────────────────
 # Number of past fights to use for rolling averages

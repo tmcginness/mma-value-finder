@@ -118,6 +118,31 @@ def cmd_scrape_details(args):
     scraper.scrape_all_fight_details()
 
 
+def cmd_scrape_tapology(args):
+    """Scrape pre-UFC fight records from Tapology for fighters with thin history."""
+    from scraping.tapology_scraper import TapologyScraper
+
+    print("Loading fight data to identify fighters needing Tapology data...")
+    fights = load_fights()
+    fights = build_feature_matrix(fights)
+
+    # Find fighters who appear in fights but lack features
+    no_features = fights[fights["has_features"] != True]
+    thin_fighters = set()
+    for _, fight in no_features.iterrows():
+        thin_fighters.add(fight["fighter_a"])
+        thin_fighters.add(fight["fighter_b"])
+
+    # If user specified specific fighters, use those instead
+    if hasattr(args, "fighters") and args.fighters:
+        thin_fighters = set(args.fighters.split(","))
+
+    print(f"Found {len(thin_fighters)} fighters needing Tapology data")
+
+    scraper = TapologyScraper()
+    scraper.scrape_fighters(sorted(thin_fighters))
+
+
 def cmd_scrape_odds(args):
     """Scrape historical betting odds from BestFightOdds."""
     from scraping.odds_scraper import scrape_historical_odds
@@ -275,6 +300,16 @@ def main():
     # Scrape fight details
     subparsers.add_parser("scrape-details", help="Scrape detailed per-fight stats")
 
+    # Scrape Tapology pre-UFC records
+    tap_parser = subparsers.add_parser(
+        "scrape-tapology",
+        help="Scrape pre-UFC records from Tapology for fighters with thin history"
+    )
+    tap_parser.add_argument(
+        "--fighters", type=str, default=None,
+        help="Comma-separated fighter names (default: auto-detect thin fighters)"
+    )
+
     # Scrape odds
     odds_parser = subparsers.add_parser("scrape-odds", help="Scrape historical odds from BestFightOdds")
     odds_parser.add_argument(
@@ -329,6 +364,7 @@ def main():
     commands = {
         "scrape": cmd_scrape,
         "scrape-details": cmd_scrape_details,
+        "scrape-tapology": cmd_scrape_tapology,
         "scrape-odds": cmd_scrape_odds,
         "train": cmd_train,
         "backtest": cmd_backtest,

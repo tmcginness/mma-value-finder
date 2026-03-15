@@ -15,7 +15,7 @@ import numpy as np
 from pathlib import Path
 from typing import Optional
 
-from config.settings import ROLLING_WINDOW
+from config.settings import ROLLING_WINDOW, TAPOLOGY_RECORDS_CSV
 
 FIGHT_DETAILS_CSV = "data/fight_details.csv"
 
@@ -34,8 +34,11 @@ def build_feature_matrix(fights_df: pd.DataFrame) -> pd.DataFrame:
     # Load detailed fight stats if available
     detail_lookup = _load_fight_details()
 
-    # Build per-fighter history lookup
-    fighter_histories = _build_fighter_histories(fights, detail_lookup)
+    # Load Tapology pre-UFC records if available
+    tapology_records = _load_tapology_records()
+
+    # Build per-fighter history lookup (with Tapology supplement)
+    fighter_histories = _build_fighter_histories(fights, detail_lookup, tapology_records)
 
     feature_rows = []
 
@@ -54,8 +57,10 @@ def build_feature_matrix(fights_df: pd.DataFrame) -> pd.DataFrame:
             continue
 
         # Compute differentials (fighter_a - fighter_b)
+        # Only compute for stats present in BOTH fighters
         features = {}
-        for stat_name in a_stats:
+        common_stats = set(a_stats.keys()) & set(b_stats.keys())
+        for stat_name in common_stats:
             features[f"{stat_name}_diff"] = a_stats[stat_name] - b_stats[stat_name]
 
         features["has_features"] = True
@@ -82,7 +87,21 @@ def _load_fight_details() -> dict:
     return lookup
 
 
-def _build_fighter_histories(fights: pd.DataFrame, detail_lookup: dict = None) -> dict:
+def _load_tapology_records() -> pd.DataFrame:
+    """Load Tapology pre-UFC fight records if available."""
+    if not Path(TAPOLOGY_RECORDS_CSV).exists():
+        return pd.DataFrame()
+
+    df = pd.read_csv(TAPOLOGY_RECORDS_CSV)
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"], format="mixed")
+        print(f"Loaded {len(df)} Tapology pre-UFC records for "
+              f"{df['fighter'].nunique()} fighters")
+    return df
+
+
+def _build_fighter_histories(fights: pd.DataFrame, detail_lookup: dict = None,
+                             tapology_records: pd.DataFrame = None) -> dict:
     """
     Build a dict mapping fighter_name -> list of per-fight stat dicts,
     sorted chronologically.
@@ -140,6 +159,34 @@ def _build_fighter_histories(fights: pd.DataFrame, detail_lookup: dict = None) -
                     ))
 
             histories[name].append(entry)
+
+    # Merge Tapology pre-UFC records for fighters with thin UFC history
+    if tapology_records is not None and not tapology_records.empty:
+        supplemented = 0
+        for fighter_name in tapology_records["fighter"].unique():
+            fighter_tap = tapology_records[
+                tapology_records["fighter"] == fighter_name
+            ]
+            tap_entries = []
+            for _, rec in fighter_tap.iterrows():
+                tap_entries.append({
+                    "date": rec["date"],
+                    "opponent": rec.get("opponent", "Unknown"),
+                    "won": 1 if rec["result"] == "win" else 0,
+                    "method": rec.get("method", "unknown"),
+                    "round": int(rec["round"]) if pd.notna(rec.get("round")) else None,
+                    "weight_class": "",
+                    "source": "tapology",
+                })
+
+            if tap_entries:
+                if fighter_name not in histories:
+                    histories[fighter_name] = []
+                histories[fighter_name].extend(tap_entries)
+                supplemented += 1
+
+        if supplemented > 0:
+            print(f"Supplemented {supplemented} fighters with Tapology records")
 
     # Sort each fighter's history chronologically
     for name in histories:
