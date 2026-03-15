@@ -41,6 +41,29 @@ MODEL_FEATURES = [
 
     # Resilience
     "loss_recovery_diff",           # How well they bounce back from losses
+
+    # ── Detailed per-fight stats (from fight detail scrape) ────
+    # Striking volume & power
+    "sig_str_landed_pm_diff",       # Sig. strikes landed per minute
+    "sig_str_absorbed_pm_diff",     # Sig. strikes absorbed per minute
+    "kd_pm_diff",                   # Knockdowns per minute
+
+    # Striking accuracy & defense
+    "sig_str_accuracy_diff",        # Striking accuracy (landed/attempted)
+    "sig_str_defense_diff",         # Strike defense (1 - opp accuracy)
+
+    # Grappling
+    "td_landed_pm_diff",            # Takedowns landed per minute
+    "td_accuracy_diff",             # Takedown accuracy
+    "td_defense_diff",              # Takedown defense
+    "ctrl_sec_pm_diff",             # Control time per minute
+    "sub_att_pm_diff",              # Submission attempts per minute
+
+    # Style indicators
+    "head_pct_diff",                # % strikes to head
+    "body_pct_diff",                # % strikes to body
+    "distance_pct_diff",            # % strikes at distance
+    "ground_pct_diff",              # % strikes on ground
 ]
 
 # ── Model Settings ───────────────────────────────────────────────────

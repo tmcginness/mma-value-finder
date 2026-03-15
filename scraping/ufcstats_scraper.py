@@ -11,6 +11,7 @@ Note: UFCStats is a community resource. Be respectful with request rates.
 
 import time
 import re
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -144,13 +145,42 @@ class UFCStatsScraper:
 
     # ── Fight Detail → Per-Fighter Stats ─────────────────────────────
 
+    @staticmethod
+    def _parse_of(text: str) -> tuple[int, int]:
+        """Parse 'X of Y' format into (landed, attempted)."""
+        match = re.match(r"(\d+)\s+of\s+(\d+)", text.strip())
+        if match:
+            return int(match.group(1)), int(match.group(2))
+        return 0, 0
+
+    @staticmethod
+    def _parse_pct(text: str) -> float:
+        """Parse '64%' or '---' into a float (0-100)."""
+        text = text.strip().replace("%", "")
+        if text == "---":
+            return 0.0
+        try:
+            return float(text)
+        except ValueError:
+            return 0.0
+
+    @staticmethod
+    def _parse_ctrl(text: str) -> int:
+        """Parse control time 'M:SS' into total seconds."""
+        text = text.strip()
+        if not text or text == "--":
+            return 0
+        match = re.match(r"(\d+):(\d+)", text)
+        if match:
+            return int(match.group(1)) * 60 + int(match.group(2))
+        return 0
+
     def scrape_fight_detail(self, fight_url: str) -> Optional[dict]:
         """
         Scrape detailed per-fighter stats from a fight detail page.
-        Returns dict with totals and significant strikes for both fighters.
 
-        This is where the rich data lives — strikes landed/attempted,
-        takedowns, submissions, control time, etc.
+        Returns dict with per-fighter totals:
+          fighter_a, fighter_b, and all stats prefixed with a_ or b_
         """
         if not fight_url:
             return None
@@ -165,23 +195,124 @@ class UFCStatsScraper:
 
         stats = {}
 
-        # Totals table (first table, "Totals" section)
-        totals_rows = tables[0].select("tr") if len(tables) > 0 else []
-        for row in totals_rows[1:]:  # skip header
-            cols = [td.text.strip() for td in row.select("td")]
-            if len(cols) >= 9:
-                # cols: fighter, KD, sig_str, sig_str%, total_str, TD, TD%, sub_att, ctrl
-                stats["knockdowns"] = cols[1]
-                stats["sig_strikes"] = cols[2]
-                stats["sig_strike_pct"] = cols[3]
-                stats["total_strikes"] = cols[4]
-                stats["takedowns"] = cols[5]
-                stats["takedown_pct"] = cols[6]
-                stats["sub_attempts"] = cols[7]
-                stats["control_time"] = cols[8]
-                break  # Just grab totals row
+        # ── Table 1: Totals ──
+        # Cols: Fighter, KD, Sig.Str, Sig.Str%, Total Str, TD, TD%, Sub.Att, Rev, Ctrl
+        totals_row = tables[0].select("tr")[1] if len(tables[0].select("tr")) > 1 else None
+        if totals_row:
+            cols = totals_row.select("td")
+            if len(cols) >= 10:
+                def _cell(col):
+                    return [t.strip() for t in col.stripped_strings]
 
-        return stats
+                names = _cell(cols[0])
+                if len(names) >= 2:
+                    stats["fighter_a"] = names[0]
+                    stats["fighter_b"] = names[1]
+
+                kd = _cell(cols[1])
+                stats["a_kd"] = int(kd[0]) if len(kd) >= 2 else 0
+                stats["b_kd"] = int(kd[1]) if len(kd) >= 2 else 0
+
+                sig = _cell(cols[2])
+                stats["a_sig_str_landed"], stats["a_sig_str_att"] = self._parse_of(sig[0]) if len(sig) >= 2 else (0, 0)
+                stats["b_sig_str_landed"], stats["b_sig_str_att"] = self._parse_of(sig[1]) if len(sig) >= 2 else (0, 0)
+
+                total = _cell(cols[4])
+                stats["a_total_str_landed"], stats["a_total_str_att"] = self._parse_of(total[0]) if len(total) >= 2 else (0, 0)
+                stats["b_total_str_landed"], stats["b_total_str_att"] = self._parse_of(total[1]) if len(total) >= 2 else (0, 0)
+
+                td = _cell(cols[5])
+                stats["a_td_landed"], stats["a_td_att"] = self._parse_of(td[0]) if len(td) >= 2 else (0, 0)
+                stats["b_td_landed"], stats["b_td_att"] = self._parse_of(td[1]) if len(td) >= 2 else (0, 0)
+
+                sub = _cell(cols[7])
+                stats["a_sub_att"] = int(sub[0]) if len(sub) >= 2 else 0
+                stats["b_sub_att"] = int(sub[1]) if len(sub) >= 2 else 0
+
+                rev = _cell(cols[8])
+                stats["a_rev"] = int(rev[0]) if len(rev) >= 2 else 0
+                stats["b_rev"] = int(rev[1]) if len(rev) >= 2 else 0
+
+                ctrl = _cell(cols[9])
+                stats["a_ctrl_sec"] = self._parse_ctrl(ctrl[0]) if len(ctrl) >= 2 else 0
+                stats["b_ctrl_sec"] = self._parse_ctrl(ctrl[1]) if len(ctrl) >= 2 else 0
+
+        # ── Table 2: Sig. Strikes Breakdown ──
+        # Cols: Fighter, Sig.Str, Sig.Str%, Head, Body, Leg, Distance, Clinch, Ground
+        if len(tables) > 1:
+            ss_row = tables[1].select("tr")[1] if len(tables[1].select("tr")) > 1 else None
+            if ss_row:
+                cols = ss_row.select("td")
+                if len(cols) >= 9:
+                    def _cell(col):
+                        return [t.strip() for t in col.stripped_strings]
+
+                    head = _cell(cols[3])
+                    stats["a_head_landed"], stats["a_head_att"] = self._parse_of(head[0]) if len(head) >= 2 else (0, 0)
+                    stats["b_head_landed"], stats["b_head_att"] = self._parse_of(head[1]) if len(head) >= 2 else (0, 0)
+
+                    body = _cell(cols[4])
+                    stats["a_body_landed"], stats["a_body_att"] = self._parse_of(body[0]) if len(body) >= 2 else (0, 0)
+                    stats["b_body_landed"], stats["b_body_att"] = self._parse_of(body[1]) if len(body) >= 2 else (0, 0)
+
+                    leg = _cell(cols[5])
+                    stats["a_leg_landed"], stats["a_leg_att"] = self._parse_of(leg[0]) if len(leg) >= 2 else (0, 0)
+                    stats["b_leg_landed"], stats["b_leg_att"] = self._parse_of(leg[1]) if len(leg) >= 2 else (0, 0)
+
+                    dist = _cell(cols[6])
+                    stats["a_dist_landed"], stats["a_dist_att"] = self._parse_of(dist[0]) if len(dist) >= 2 else (0, 0)
+                    stats["b_dist_landed"], stats["b_dist_att"] = self._parse_of(dist[1]) if len(dist) >= 2 else (0, 0)
+
+                    clinch = _cell(cols[7])
+                    stats["a_clinch_landed"], stats["a_clinch_att"] = self._parse_of(clinch[0]) if len(clinch) >= 2 else (0, 0)
+                    stats["b_clinch_landed"], stats["b_clinch_att"] = self._parse_of(clinch[1]) if len(clinch) >= 2 else (0, 0)
+
+                    ground = _cell(cols[8])
+                    stats["a_ground_landed"], stats["a_ground_att"] = self._parse_of(ground[0]) if len(ground) >= 2 else (0, 0)
+                    stats["b_ground_landed"], stats["b_ground_att"] = self._parse_of(ground[1]) if len(ground) >= 2 else (0, 0)
+
+        return stats if "fighter_a" in stats else None
+
+    def scrape_all_fight_details(
+        self,
+        fights_csv: str = RAW_FIGHTS_CSV,
+        output_path: str = "data/fight_details.csv",
+    ) -> pd.DataFrame:
+        """Scrape detailed stats for all fights. Supports incremental resume."""
+        fights = pd.read_csv(fights_csv)
+        fight_urls = fights["fight_url"].dropna().unique().tolist()
+
+        # Resume from existing data
+        all_stats = []
+        scraped_urls = set()
+        if Path(output_path).exists():
+            existing = pd.read_csv(output_path)
+            if not existing.empty:
+                all_stats = existing.to_dict("records")
+                scraped_urls = set(existing.get("fight_url", []))
+                print(f"Resuming: {len(scraped_urls)} fights already scraped")
+
+        remaining = [u for u in fight_urls if u not in scraped_urls]
+        print(f"Scraping details for {len(remaining)} fights "
+              f"({len(scraped_urls)} already done)...")
+
+        for i, url in enumerate(tqdm(remaining, desc="Fight details")):
+            detail = self.scrape_fight_detail(url)
+            if detail:
+                detail["fight_url"] = url
+                all_stats.append(detail)
+
+            # Save checkpoint every 100 fights
+            if (i + 1) % 100 == 0:
+                df = pd.DataFrame(all_stats)
+                df.to_csv(output_path, index=False)
+
+        df = pd.DataFrame(all_stats)
+        if not df.empty:
+            df.to_csv(output_path, index=False)
+            print(f"Saved {len(df)} fight details to {output_path}")
+
+        return df
 
     # ── Full Scrape ──────────────────────────────────────────────────
 

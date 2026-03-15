@@ -112,6 +112,12 @@ def cmd_evaluate(args):
     cmd_backtest(args)
 
 
+def cmd_scrape_details(args):
+    """Scrape detailed per-fight stats from UFCStats.com."""
+    scraper = UFCStatsScraper()
+    scraper.scrape_all_fight_details()
+
+
 def cmd_scrape_odds(args):
     """Scrape historical betting odds from BestFightOdds."""
     from scraping.odds_scraper import scrape_historical_odds
@@ -266,6 +272,9 @@ def main():
     # Scrape
     subparsers.add_parser("scrape", help="Scrape fight data from UFCStats.com")
 
+    # Scrape fight details
+    subparsers.add_parser("scrape-details", help="Scrape detailed per-fight stats")
+
     # Scrape odds
     odds_parser = subparsers.add_parser("scrape-odds", help="Scrape historical odds from BestFightOdds")
     odds_parser.add_argument(
@@ -319,6 +328,7 @@ def main():
 
     commands = {
         "scrape": cmd_scrape,
+        "scrape-details": cmd_scrape_details,
         "scrape-odds": cmd_scrape_odds,
         "train": cmd_train,
         "backtest": cmd_backtest,
