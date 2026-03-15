@@ -67,39 +67,66 @@ def calibration_table(
 def compute_bet_results(
     y_true: np.ndarray,
     model_prob: np.ndarray,
-    implied_prob: np.ndarray,
-    decimal_odds: np.ndarray,
+    implied_prob_a: np.ndarray,
+    decimal_odds_a: np.ndarray,
     min_edge: float = 0.05,
     bet_size: float = 10.0,
+    implied_prob_b: np.ndarray | None = None,
+    decimal_odds_b: np.ndarray | None = None,
 ) -> pd.DataFrame:
     """
     Simulate flat-bet results for fights where model found value.
 
-    A bet is placed when: model_prob - implied_prob > min_edge
+    Considers betting on BOTH sides:
+    - Bet fighter_a when: model_prob_a - implied_prob_a > min_edge
+    - Bet fighter_b when: (1 - model_prob_a) - implied_prob_b > min_edge
 
     Returns DataFrame with per-bet P&L.
     """
-    edge = model_prob - implied_prob
-    bet_mask = edge > min_edge
+    model_prob_b = 1.0 - model_prob
+
+    # Edge on fighter_a
+    edge_a = model_prob - implied_prob_a
+
+    # Edge on fighter_b (if we have fighter_b lines)
+    if implied_prob_b is not None:
+        edge_b = model_prob_b - implied_prob_b
+    else:
+        edge_b = np.full_like(edge_a, -1.0)  # no fighter_b bets
 
     results = []
     for i in range(len(y_true)):
-        if not bet_mask[i]:
-            continue
+        # Check fighter_a value
+        if edge_a[i] > min_edge:
+            won_bet = bool(y_true[i] == 1)
+            pnl = bet_size * (decimal_odds_a[i] - 1) if won_bet else -bet_size
+            results.append({
+                "fight_idx": i,
+                "bet_side": "fighter_a",
+                "model_prob": model_prob[i],
+                "implied_prob": implied_prob_a[i],
+                "edge": edge_a[i],
+                "decimal_odds": decimal_odds_a[i],
+                "won_bet": won_bet,
+                "bet_size": bet_size,
+                "pnl": pnl,
+            })
 
-        won_bet = bool(y_true[i] == 1)  # We always bet on fighter_a when edge is positive
-        pnl = bet_size * (decimal_odds[i] - 1) if won_bet else -bet_size
-
-        results.append({
-            "fight_idx": i,
-            "model_prob": model_prob[i],
-            "implied_prob": implied_prob[i],
-            "edge": edge[i],
-            "decimal_odds": decimal_odds[i],
-            "won_bet": won_bet,
-            "bet_size": bet_size,
-            "pnl": pnl,
-        })
+        # Check fighter_b value
+        if implied_prob_b is not None and decimal_odds_b is not None and edge_b[i] > min_edge:
+            won_bet = bool(y_true[i] == 0)
+            pnl = bet_size * (decimal_odds_b[i] - 1) if won_bet else -bet_size
+            results.append({
+                "fight_idx": i,
+                "bet_side": "fighter_b",
+                "model_prob": model_prob_b[i],
+                "implied_prob": implied_prob_b[i],
+                "edge": edge_b[i],
+                "decimal_odds": decimal_odds_b[i],
+                "won_bet": won_bet,
+                "bet_size": bet_size,
+                "pnl": pnl,
+            })
 
     return pd.DataFrame(results)
 

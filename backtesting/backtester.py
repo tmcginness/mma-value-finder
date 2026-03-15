@@ -153,20 +153,37 @@ class Backtester:
             test_with_lines = test[mask]
             probs_with_lines = test_probs[mask.values]
 
-            implied_probs = test_with_lines["fighter_a_line"].apply(
+            implied_probs_a = test_with_lines["fighter_a_line"].apply(
                 lambda x: american_to_implied_prob(int(x))
             ).values
-            decimal_odds = test_with_lines["fighter_a_line"].apply(
+            decimal_odds_a = test_with_lines["fighter_a_line"].apply(
                 lambda x: american_to_decimal(int(x))
             ).values
+
+            # Also compute fighter_b lines if available
+            has_b_lines = (
+                "fighter_b_line" in test_with_lines.columns
+                and test_with_lines["fighter_b_line"].notna().sum() > 0
+            )
+            implied_probs_b = None
+            decimal_odds_b = None
+            if has_b_lines:
+                implied_probs_b = test_with_lines["fighter_b_line"].apply(
+                    lambda x: american_to_implied_prob(int(x)) if pd.notna(x) else 1.0
+                ).values
+                decimal_odds_b = test_with_lines["fighter_b_line"].apply(
+                    lambda x: american_to_decimal(int(x)) if pd.notna(x) else 1.0
+                ).values
 
             bet_results_df = compute_bet_results(
                 y_true=test_with_lines["fighter_a_won"].values,
                 model_prob=probs_with_lines,
-                implied_prob=implied_probs,
-                decimal_odds=decimal_odds,
+                implied_prob_a=implied_probs_a,
+                decimal_odds_a=decimal_odds_a,
                 min_edge=min_edge,
                 bet_size=bet_size,
+                implied_prob_b=implied_probs_b,
+                decimal_odds_b=decimal_odds_b,
             )
             bet_metrics = betting_summary(bet_results_df)
         else:

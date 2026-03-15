@@ -110,21 +110,69 @@ def merge_fights_with_lines(
 ) -> pd.DataFrame:
     """
     Merge fight results with historical lines on date + fighter names.
-    Fuzzy matching on names is a common pain point — start with exact match.
+
+    Handles the fact that fighter_a/b ordering differs between our data
+    (randomly swapped) and the odds source. Uses a canonical name pair key
+    (sorted alphabetically) to match regardless of ordering.
     """
     if lines.empty:
         fights["fighter_a_line"] = np.nan
         fights["fighter_b_line"] = np.nan
         return fights
 
-    merged = fights.merge(
-        lines,
-        on=["date", "fighter_a", "fighter_b"],
-        how="left",
-        suffixes=("", "_line"),
-    )
+    # Normalize names for matching
+    def _norm(name):
+        return str(name).strip().lower()
 
-    return merged
+    # Build canonical key: sorted pair of normalized names + date
+    def _make_key(row):
+        names = sorted([_norm(row["fighter_a"]), _norm(row["fighter_b"])])
+        return (row["date"], names[0], names[1])
+
+    # Build lookup from odds data
+    lines = lines.copy()
+    lines["date"] = pd.to_datetime(lines["date"], format="mixed")
+    odds_lookup = {}
+    for _, row in lines.iterrows():
+        key = _make_key(row)
+        odds_lookup[key] = {
+            "odds_fighter_a": _norm(row["fighter_a"]),
+            "odds_fighter_b": _norm(row["fighter_b"]),
+            "line_a": row["fighter_a_line"],
+            "line_b": row["fighter_b_line"],
+        }
+
+    # Match fights to odds
+    fighter_a_lines = []
+    fighter_b_lines = []
+
+    for _, fight in fights.iterrows():
+        key = _make_key(fight)
+        odds = odds_lookup.get(key)
+
+        if odds is None:
+            fighter_a_lines.append(np.nan)
+            fighter_b_lines.append(np.nan)
+            continue
+
+        # Figure out which odds correspond to which fighter
+        fight_a_norm = _norm(fight["fighter_a"])
+        if fight_a_norm == odds["odds_fighter_a"]:
+            fighter_a_lines.append(odds["line_a"])
+            fighter_b_lines.append(odds["line_b"])
+        else:
+            # Fighters are swapped — reverse the lines
+            fighter_a_lines.append(odds["line_b"])
+            fighter_b_lines.append(odds["line_a"])
+
+    fights = fights.copy()
+    fights["fighter_a_line"] = fighter_a_lines
+    fights["fighter_b_line"] = fighter_b_lines
+
+    matched = fights["fighter_a_line"].notna().sum()
+    print(f"Matched {matched}/{len(fights)} fights with betting lines")
+
+    return fights
 
 
 def _clean_method(method: str) -> str:

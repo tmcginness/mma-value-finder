@@ -112,6 +112,15 @@ def cmd_evaluate(args):
     cmd_backtest(args)
 
 
+def cmd_scrape_odds(args):
+    """Scrape historical betting odds from BestFightOdds."""
+    from scraping.odds_scraper import scrape_historical_odds
+
+    fights = pd.read_csv("data/raw_fights.csv")
+    start = args.start if hasattr(args, "start") and args.start else "2023-01-01"
+    scrape_historical_odds(fights, start_date=start)
+
+
 def cmd_predict(args):
     """
     Predict upcoming fights using a trained model and historical fighter data.
@@ -257,6 +266,13 @@ def main():
     # Scrape
     subparsers.add_parser("scrape", help="Scrape fight data from UFCStats.com")
 
+    # Scrape odds
+    odds_parser = subparsers.add_parser("scrape-odds", help="Scrape historical odds from BestFightOdds")
+    odds_parser.add_argument(
+        "--start", type=str, default="2023-01-01",
+        help="Start date for odds scraping (YYYY-MM-DD, default: 2023-01-01)"
+    )
+
     # Train
     train_parser = subparsers.add_parser("train", help="Train a prediction model")
     train_parser.add_argument(
@@ -303,6 +319,7 @@ def main():
 
     commands = {
         "scrape": cmd_scrape,
+        "scrape-odds": cmd_scrape_odds,
         "train": cmd_train,
         "backtest": cmd_backtest,
         "evaluate": cmd_evaluate,
