@@ -9,5 +9,5 @@ MODEL_REGISTRY = {
 try:
     from models.xgboost_model import XGBoostFightModel
     MODEL_REGISTRY["xgboost"] = XGBoostFightModel
-except ImportError:
+except Exception:
     pass
