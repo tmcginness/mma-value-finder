@@ -184,9 +184,16 @@ def cmd_predict(args):
     fights_with_features = build_feature_matrix(fights)
 
     # Build fighter histories for upcoming fight feature computation
-    from features.feature_engineering import _build_fighter_histories, _get_fighter_stats_before
+    from features.feature_engineering import (
+        _build_fighter_histories, _get_fighter_stats_before,
+        _load_fight_details, _load_tapology_records,
+    )
+    detail_lookup = _load_fight_details()
+    tapology_records = _load_tapology_records()
     fighter_histories = _build_fighter_histories(
-        fights_with_features.sort_values("date").reset_index(drop=True)
+        fights_with_features.sort_values("date").reset_index(drop=True),
+        detail_lookup,
+        tapology_records,
     )
 
     # Load or train model
@@ -256,11 +263,16 @@ def cmd_predict(args):
                 continue
 
             features = {}
-            for stat_name in a_stats:
+            common_stats = set(a_stats.keys()) & set(b_stats.keys())
+            for stat_name in common_stats:
                 features[f"{stat_name}_diff"] = a_stats[stat_name] - b_stats[stat_name]
 
             feature_df = pd.DataFrame([features])
-            X = feature_df[[f for f in available_features if f in feature_df.columns]]
+            # Ensure all expected features exist (fill missing with NaN for XGBoost)
+            for f in available_features:
+                if f not in feature_df.columns:
+                    feature_df[f] = np.nan
+            X = feature_df[available_features]
             prob_a = model.predict_proba(X)[0]
 
         prob_b = 1 - prob_a
